@@ -389,6 +389,21 @@ async function handle(request, response) {
       !expiresAt ||
       expiresAt < Date.now()
     ) {
+      console.warn(
+        "login-rejected " +
+          JSON.stringify({
+            hasCookie: Boolean(nonce),
+            cookieMatchesForm:
+              Boolean(nonce) && Boolean(form.csrf) && nonce === form.csrf,
+            nonceKnown: Boolean(expiresAt),
+            expired: Boolean(expiresAt) && expiresAt < Date.now(),
+            origin: request.headers.origin || null,
+            host: request.headers.host || null,
+            secFetchSite: request.headers["sec-fetch-site"] || null,
+            referer: request.headers.referer || null,
+            userAgent: String(request.headers["user-agent"] || "").slice(0, 90),
+          }),
+      );
       return renderLoginPage(response, "Sign-in form expired. Please try again.");
     }
     if (
