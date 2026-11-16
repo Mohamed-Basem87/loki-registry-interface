@@ -329,6 +329,9 @@ async function readForm(request) {
 function assertSameOrigin(request) {
   const origin = request.headers.origin;
   if (!origin) return;
+  // Sandboxed iframes and some privacy modes send "null"; the per-form CSRF
+  // nonce below is still validated, so do not reject those requests.
+  if (origin === "null") return;
   let parsed;
   try {
     parsed = new URL(origin);
