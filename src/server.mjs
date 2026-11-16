@@ -13,11 +13,10 @@ const sender = new SenderApi({
   token: config.senderToken,
 });
 const sessions = new Map();
-const loginNonces = new Map();
 const loginFailures = new Map();
 const SESSION_COOKIE = "loki_registry_session";
-const LOGIN_COOKIE = "loki_registry_login";
 const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000;
+const LOGIN_TOKEN_LIFETIME_MS = 10 * 60 * 1000;
 const MAX_FORM_BYTES = 16 * 1024;
 
 function escapeHtml(value) {
@@ -72,6 +71,24 @@ function equalSecret(left, right) {
 
 function signSession(id) {
   return createHmac("sha256", config.sessionSecret).update(id).digest("base64url");
+}
+
+// Stateless, HMAC-signed form token: survives restarts and does not depend on
+// a cookie still matching the rendered form.
+function createLoginToken() {
+  const payload = `${Date.now()}.${randomBytes(18).toString("base64url")}`;
+  return `${payload}.${createHmac("sha256", config.sessionSecret).update(payload).digest("base64url")}`;
+}
+
+function verifyLoginToken(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3) return false;
+  const [issuedAt, random, signature] = parts;
+  const payload = `${issuedAt}.${random}`;
+  const expected = createHmac("sha256", config.sessionSecret).update(payload).digest("base64url");
+  if (!equalSecret(signature, expected)) return false;
+  const timestamp = Number(issuedAt);
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= LOGIN_TOKEN_LIFETIME_MS;
 }
 
 function createSession(response) {
@@ -307,9 +324,7 @@ async function renderDashboard(session, { result = null, error = "" } = {}) {
 }
 
 function renderLoginPage(response, message = "") {
-  const nonce = randomBytes(24).toString("base64url");
-  loginNonces.set(nonce, Date.now() + 10 * 60 * 1000);
-  appendCookie(response, LOGIN_COOKIE, nonce, 600);
+  const nonce = createLoginToken();
   sendHtml(response, message ? 401 : 200, renderLogin(nonce, message));
 }
 
@@ -378,25 +393,12 @@ async function handle(request, response) {
     assertSameOrigin(request);
     const address = checkLoginRateLimit(request);
     const form = await readForm(request);
-    const nonce = cookies(request)[LOGIN_COOKIE];
-    const expiresAt = loginNonces.get(form.csrf);
-    loginNonces.delete(form.csrf);
-    clearCookie(response, LOGIN_COOKIE);
 
-    if (
-      !nonce ||
-      !equalSecret(nonce, form.csrf || "") ||
-      !expiresAt ||
-      expiresAt < Date.now()
-    ) {
+    if (!verifyLoginToken(form.csrf)) {
       console.warn(
         "login-rejected " +
           JSON.stringify({
-            hasCookie: Boolean(nonce),
-            cookieMatchesForm:
-              Boolean(nonce) && Boolean(form.csrf) && nonce === form.csrf,
-            nonceKnown: Boolean(expiresAt),
-            expired: Boolean(expiresAt) && expiresAt < Date.now(),
+            hasToken: Boolean(form.csrf),
             origin: request.headers.origin || null,
             host: request.headers.host || null,
             secFetchSite: request.headers["sec-fetch-site"] || null,
