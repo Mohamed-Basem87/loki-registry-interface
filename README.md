@@ -58,8 +58,9 @@ Required secrets:
   `GITHUB_APP_PRIVATE_KEY_FILE`, `GITHUB_OWNER`, and `GITHUB_REPO`
 - `SENDER_API_BASE_URL`
 
-`COOKIE_SECURE=true` is recommended when serving the UI over HTTPS, such as
-through Tailscale Serve. For local development over HTTP, set it to `false`.
+`COOKIE_SECURE=true` is required when serving the UI over HTTPS. Leave it
+`false` when using the default compose setup, which serves plain HTTP on
+`http://<host-ip>:<PORT>`.
 
 The container listens on port `8080`. It has no third-party runtime
 dependencies and can be tested with `npm test`.
@@ -82,9 +83,12 @@ cannot publish until both secrets are configured.
 Copy `docker-compose.yml` and `.env.example` to the server, create `.env`, and
 create the three secret files under `secrets/`. Do not put secret values in
 Git. Set `SENDER_API_BASE_URL` to the sender's Tailscale DNS name or address.
-The compose file binds the UI to localhost; expose it to the tailnet through
-Tailscale Serve rather than publishing an unauthenticated management port to
-the public internet.
+
+The compose file publishes the UI on `${PORT:-8080}` on all host interfaces, so
+it is reachable at `http://<host-ip>:<PORT>` over the LAN or Tailscale. The only
+access control is the admin login, so do not port-forward it to the public
+internet; keep it on the LAN/tailnet or put an authenticating reverse proxy in
+front of it.
 
 After the image has been published:
 
